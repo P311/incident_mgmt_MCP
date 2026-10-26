@@ -1,15 +1,18 @@
 # Incident Management Event Log
 
-This project contains a realistic IT incident-management process event log and a small Python SDK for loading it, exposed over MCP as deterministic aggregation tools plus a BM25 keyword search tool.
+An MCP server over a realistic IT incident-management event log (242,900 events, 31,588 tickets). It exposes deterministic aggregation tools, a BM25 keyword search tool, a report prompt, and a report tool that borrows the client's model through MCP sampling — plus the small Python SDK underneath and an optional browser console.
 
-> This project previously ran on the UCI *Incident Management Process Enriched Event Log*. That dataset is anonymized (`Category 42`, `Symptom 491`, ...) with no free text, so it couldn't back a meaningful keyword search tool. It has been replaced with a dataset that has both a real event timeline *and* real-language short descriptions; the original files are preserved under `data/legacy_uci_incident_management/` rather than deleted.
+The design rule throughout: **the server does the arithmetic, the model does the writing.** Every number a model sees comes from a tested, deterministic aggregation, never from the model re-deriving it.
 
 ## Setup
 
 ```bash
+git clone <this repo> && cd <repo>
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -e .
 ```
+
+The dataset ships in the repo as `data/incident_event_log.csv.zip` (2.2 MB) and is read straight from the zip, so there is no download step.
 
 Validate the deployment:
 
@@ -41,7 +44,7 @@ Two things worth knowing before extending the suite:
 - **MCP errors must be asserted through the protocol.** `server.call_tool()` *raises*; it is the dispatch layer that converts a `ToolError` into the `is_error` result a client sees. `tests/test_mcp_server.py` therefore drives a real `ClientSession` over in-memory streams rather than calling the tool functions directly — no subprocess, same exchange.
 - **The suite is checked against regressions it should catch.** Reverting final-event attribution and moving filtering back to the event layer both fail multiple tests, and swapping a `ToolError` for a `ValueError` fails others.
 
-Use the SDK:
+### Use the SDK
 
 ```python
 from incident_management import load_event_log, to_pm4py
@@ -84,7 +87,7 @@ Tool 2 is exposed as `counter_distribution(DistributionQuery)`. Its input is fix
 
 The fixed output is `DistributionResult(metric, case_count, timestamp_from, timestamp_to, rows)`. Each row has `value` (the counter value), `count` (cases with that value), and `share` (`count / case_count`, rounded to 6 decimals). Rows are sorted ascending by `value`, and counter values with no cases are omitted rather than emitted as zero rows.
 
-**Counting rule.** Unlike the previous dataset, this event log carries no raw reassignment/reopen counter columns at all — only an 18-value `Event` activity per row (`Ticket created`, `... escalates to level 2/3 support`, `... rejected by level 1 support`, `Ticket reopened by customer`, `Ticket closed`, etc.). `dataset.py` derives both counters at load time from that activity sequence: `reassignment_count` increments on any handoff to a different level/agent *after* the initial assignment (escalations, follow-up assignments, rejections back down); `reopen_count` increments on `Ticket reopened by customer`. Both are running counters carried on every event, so each case contributes exactly one observation: its maximum counter value, which is also its final value (verified non-decreasing within every case).
+**Counting rule.** This event log carries no raw reassignment/reopen counter columns at all — only an 18-value `Event` activity per row (`Ticket created`, `... escalates to level 2/3 support`, `... rejected by level 1 support`, `Ticket reopened by customer`, `Ticket closed`, etc.). `dataset.py` derives both counters at load time from that activity sequence: `reassignment_count` increments on any handoff to a different level/agent *after* the initial assignment (escalations, follow-up assignments, rejections back down); `reopen_count` increments on `Ticket reopened by customer`. Both are running counters carried on every event, so each case contributes exactly one observation: its maximum counter value, which is also its final value (verified non-decreasing within every case).
 
 ```python
 from incident_management import DistributionQuery, counter_distribution
@@ -124,22 +127,22 @@ Registered prompts:
 | --- | --- |
 | `incident_report` | A report brief with the aggregated data already attached |
 
-Register it with an MCP client (e.g. `claude_desktop_config.json`). If Claude Desktop and this
-project are both on the same Linux (or macOS) machine:
+Register it with an MCP client (e.g. `claude_desktop_config.json`). Replace `/path/to/repo` with
+your checkout. If Claude Desktop and this project are both on the same Linux (or macOS) machine:
 
 ```json
 {
   "mcpServers": {
     "incident-management": {
-      "command": "/home/liuli/MCP/.venv/bin/python",
+      "command": "/path/to/repo/.venv/bin/python",
       "args": ["-m", "incident_management.mcp_server"],
-      "cwd": "/home/liuli/MCP"
+      "cwd": "/path/to/repo"
     }
   }
 }
 ```
 
-If Claude Desktop runs on Windows but the project lives in WSL (as in this setup), the command
+If Claude Desktop runs on Windows but the project lives in WSL, the command
 must be a Windows-executable — `wsl.exe` — that shells into the distro, since Windows can't run a
 Linux binary directly:
 
@@ -150,9 +153,9 @@ Linux binary directly:
       "command": "wsl.exe",
       "args": [
         "-d", "Ubuntu",
-        "--cd", "/home/liuli/MCP",
+        "--cd", "/path/to/repo",
         "--",
-        "/home/liuli/MCP/.venv/bin/python",
+        "/path/to/repo/.venv/bin/python",
         "-m", "incident_management.mcp_server"
       ]
     }
@@ -229,7 +232,7 @@ Three consequences worth knowing:
 
 ## Dataset schema
 
-The loader reads `data/processed/incident_event_log.csv` (`;`-separated, 242,900 events after one malformed row is dropped, 31,588 cases, 17 activities) and normalizes its headers to snake_case, which already gives the three process-mining names the loader relies on:
+The loader reads `data/incident_event_log.csv.zip` (one `;`-separated CSV inside, 242,900 events after one malformed row is dropped, 31,588 cases, 17 activities) and normalizes its headers to snake_case, which already gives the three process-mining names the loader relies on:
 
 | column | meaning |
 | --- | --- |
@@ -247,7 +250,7 @@ The loader reads `data/processed/incident_event_log.csv` (`;`-separated, 242,900
 
 A single row with a blank `Event` is dropped at load time (one such row exists in the source file; it cannot be placed in a case's process flow). Sorting is by `case_id` then `timestamp`, stable, so any tied timestamps keep the source file's order.
 
-The source CSV is stored in both `data/raw/` and `data/processed/` (no transformation between them — same convention the previous dataset used). The dataset is *Process Mining Event Log - Incident Management* by Alberto P on Kaggle (MIT license): <https://www.kaggle.com/datasets/albertopmd/process-mining-event-log-incident-management>. The original UCI dataset this project used before is preserved, not deleted, under `data/legacy_uci_incident_management/`.
+The zip is the unmodified Kaggle download. The dataset is *Process Mining Event Log - Incident Management* by Alberto P on Kaggle, redistributed here under its MIT license: <https://www.kaggle.com/datasets/albertopmd/process-mining-event-log-incident-management>. It was chosen over the better-known UCI incident log because the UCI data is fully anonymized (`Category 42`, `Symptom 491`, ...) and has no free text to back a keyword search tool.
 
 ## Browser GUI
 
@@ -271,3 +274,7 @@ cd .. && .venv/bin/incident-management-gui # serves web/dist and the API togethe
 ```
 
 The console covers `list_dimension_values`, `case_processing_duration`, `counter_value_distribution`, and the `incident_report` prompt (brief + attached data, no model needed). It also exposes `write_incident_report`, but since the browser has no model of its own to satisfy MCP sampling, that call is expected to report itself unavailable — the UI surfaces the server's own error message and points back at the brief. `keyword_search` is not yet wired into the GUI (no `/api/search` route or search panel); use `scripts/call_tool.py keyword_search '{"sentence": "..."}'`, Claude Desktop, or another MCP client to exercise it today.
+
+## License
+
+Code is MIT-licensed (see `LICENSE`). The bundled dataset is MIT-licensed by its original author; see [Dataset schema](#dataset-schema) for the source.

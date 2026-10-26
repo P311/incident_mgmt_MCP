@@ -138,4 +138,4 @@ class TestRealDataset:
             assert (grouped.last() == grouped.max()).all(), column
 
     def test_dataset_path_points_at_the_real_file(self):
-        assert DATASET_PATH.name == "incident_event_log.csv"
+        assert DATASET_PATH.name == "incident_event_log.csv.zip"

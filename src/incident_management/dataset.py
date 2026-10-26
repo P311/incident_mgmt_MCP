@@ -4,7 +4,8 @@ import pandas as pd
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATASET_PATH = PROJECT_ROOT / "data" / "processed" / "incident_event_log.csv"
+# The Kaggle archive is committed as-is; pandas reads the single CSV inside the zip directly.
+DATASET_PATH = PROJECT_ROOT / "data" / "incident_event_log.csv.zip"
 
 TIMESTAMP_FORMAT = "%d/%m/%Y %H:%M"
 CSV_SEPARATOR = ";"
@@ -31,8 +32,7 @@ TIMESTAMP_COLUMN = "timestamp"
 DATE_COLUMNS = ("timestamp",)
 NUMERIC_COLUMNS = ("customer_satisfaction",)
 
-# The source log carries no running reassignment/reopen counters (unlike the UCI
-# incident log this project used to load); both are derived here from the activity
+# The source log carries no running reassignment/reopen counters; both are derived here from the activity
 # sequence so query.py's counter-distribution tool needs no schema-specific logic.
 # A ticket's very first assignment is not a *re*-assignment, so only a handoff to a
 # support level/agent other than the first one counts.
